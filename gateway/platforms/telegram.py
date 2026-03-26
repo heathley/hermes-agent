@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from telegram import Update, Bot, Message
+    from telegram.error import BadRequest as TelegramBadRequest
     from telegram.ext import (
         Application,
         CommandHandler,
@@ -28,6 +29,7 @@ try:
     TELEGRAM_AVAILABLE = True
 except ImportError:
     TELEGRAM_AVAILABLE = False
+    TelegramBadRequest = Exception  # type: ignore[assignment,misc]
     Update = Any
     Bot = Any
     Message = Any
@@ -526,6 +528,17 @@ class TelegramAdapter(BasePlatformAdapter):
                             else:
                                 raise
                         break  # success
+                    except TelegramBadRequest as bad_req:
+                        if "message to be replied not found" in str(bad_req).lower():
+                            # Original message was deleted before we could reply to it.
+                            # Clear the reply target and retry so the message is still delivered.
+                            logger.warning(
+                                "[%s] Reply target deleted, retrying without thread: %s",
+                                self.name, bad_req,
+                            )
+                            reply_to_id = None
+                        else:
+                            raise
                     except _NetErr as send_err:
                         if _send_attempt < 2:
                             wait = 2 ** _send_attempt
