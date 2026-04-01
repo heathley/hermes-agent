@@ -752,14 +752,23 @@ class MCPServerTask:
         headers = dict(config.get("headers") or {})
         connect_timeout = config.get("connect_timeout", _DEFAULT_CONNECT_TIMEOUT)
 
-        # OAuth 2.1 PKCE: build httpx.Auth handler using the MCP SDK
+        # OAuth 2.1 PKCE: build httpx.Auth handler using the MCP SDK.
+        # Only proceed if a valid cached token exists — initiating an interactive
+        # browser flow during startup would block Hermes for up to 120 seconds
+        # and deadlock the MCP event loop if the user is not present.
         _oauth_auth = None
         if self._auth_type == "oauth":
             try:
-                from tools.mcp_oauth import build_oauth_auth
+                from tools.mcp_oauth import build_oauth_auth, has_valid_token
+                if not await has_valid_token(self.name):
+                    raise RuntimeError(
+                        f"MCP server '{self.name}' requires OAuth but no valid token is "
+                        f"cached. Authenticate first with: hermes mcp auth {self.name}"
+                    )
                 _oauth_auth = build_oauth_auth(self.name, url)
             except Exception as exc:
                 logger.warning("MCP OAuth setup failed for '%s': %s", self.name, exc)
+                raise
 
         sampling_kwargs = self._sampling.session_kwargs() if self._sampling else {}
         _http_kwargs: dict = {

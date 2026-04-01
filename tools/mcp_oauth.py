@@ -186,8 +186,10 @@ async def _wait_for_callback() -> tuple[str, str | None]:
     code = result["auth_code"] or ""
     state = result["state"]
     if not code:
-        print("  Browser callback timed out. Paste the authorization code manually:")
-        code = input("  Code: ").strip()
+        raise TimeoutError(
+            "OAuth callback timed out — no authorization code received. "
+            "Re-authenticate with: hermes mcp auth <server-name>"
+        )
     return code, state
 
 
@@ -242,6 +244,23 @@ def build_oauth_auth(server_name: str, server_url: str):
         callback_handler=_wait_for_callback,
         timeout=120.0,
     )
+
+
+async def has_valid_token(server_name: str) -> bool:
+    """Return True if a non-expired OAuth token exists in storage for this server.
+
+    Used at startup to skip interactive browser flows when no token is cached.
+    A token with no expiry information is assumed valid (server will reject it
+    if it has actually expired, which will surface as a connection error).
+    """
+    storage = HermesTokenStorage(server_name)
+    tokens = await storage.get_tokens()
+    if tokens is None:
+        return False
+    if hasattr(tokens, "expires_at") and tokens.expires_at:
+        import time
+        return float(tokens.expires_at) > time.time() + 30  # 30s safety buffer
+    return True
 
 
 def remove_oauth_tokens(server_name: str) -> None:
