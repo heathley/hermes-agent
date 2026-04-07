@@ -977,10 +977,9 @@ class SlackAdapter(BasePlatformAdapter):
             return False
         
         try:
-            # Build a SessionSource for this thread
-            from gateway.session import SessionSource
+            from gateway.session import SessionSource, build_session_key
             from gateway.config import Platform
-            
+
             source = SessionSource(
                 platform=Platform.SLACK,
                 chat_id=channel_id,
@@ -988,27 +987,14 @@ class SlackAdapter(BasePlatformAdapter):
                 user_id=user_id,
                 thread_id=thread_ts,
             )
-            
-            # Generate the session key using the same logic as SessionStore
-            # This mirrors the logic in build_session_key for group sessions
-            key_parts = ["agent:main", "slack", "group", channel_id, thread_ts]
-            
-            # Include user_id if group_sessions_per_user is enabled
-            # We check the session store config if available
-            group_sessions_per_user = getattr(
-                session_store, "config", {}
+
+            store_config = getattr(session_store, "config", None)
+            session_key = build_session_key(
+                source,
+                group_sessions_per_user=getattr(store_config, "group_sessions_per_user", True),
+                thread_sessions_per_user=getattr(store_config, "thread_sessions_per_user", False),
             )
-            if hasattr(group_sessions_per_user, "group_sessions_per_user"):
-                group_sessions_per_user = group_sessions_per_user.group_sessions_per_user
-            else:
-                group_sessions_per_user = True  # Default
-            
-            if group_sessions_per_user and user_id:
-                key_parts.append(str(user_id))
-            
-            session_key = ":".join(key_parts)
-            
-            # Check if the session exists in the store
+
             session_store._ensure_loaded()
             return session_key in session_store._entries
         except Exception:
